@@ -3,62 +3,81 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="A fast, read-only make.fun frontend.">
-<meta name="theme-color" content="#0f1c2e">
-<title>make.fun — bounties, leaderboards, profiles</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%231b2a4a'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%23f5c542'%3Em%3C/text%3E%3C/svg%3E">
+<title>Bounties | make.fun</title>
+<meta name="description" content="Live bounties on make.fun — pots, deadlines, leaderboards, entries and profiles.">
 <style>
-/* Shell styles for the first paint, before style.css arrives. */
-body{margin:0;background:#f6f8fb;color:#16202e;font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-.wrap{max-width:1020px;margin:0 auto;padding:0 20px}
-.topbar{background:#0f1c2e;color:#fff}
-.topbar-inner{display:flex;align-items:center;gap:20px;min-height:56px;padding-top:8px;padding-bottom:8px}
-.brand{color:#fff;font-size:21px;font-weight:800;letter-spacing:-.02em;text-decoration:none}
+body{margin:0;background:#f7f9fc;color:#182430;font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+a{color:#0a5cba;text-decoration:none}
+.wrap{max-width:1040px;margin:0 auto;padding:0 20px}
+.masthead{background:#10233a;color:#fff}
+.masthead-in{display:flex;align-items:center;gap:20px;min-height:56px;padding-top:8px;padding-bottom:8px;flex-wrap:wrap}
+.brand{color:#fff;font-size:21px;font-weight:800;letter-spacing:-.02em}
 .brand-dot{color:#5ec8f8}
-.topnav{display:flex;gap:4px;flex-wrap:wrap}
-.topnav a{color:#c7d6e6;padding:6px 10px;border-radius:8px;font-size:15px;font-weight:600;text-decoration:none}
-.topsearch{margin-left:auto;display:flex;gap:8px}
-.topsearch input{width:220px;padding:7px 10px;border:1px solid #33465e;border-radius:8px;background:#16283d;color:#fff;font:inherit;font-size:14px}
-.topsearch button{padding:7px 14px;border:0;border-radius:8px;background:#0b5cad;color:#fff;font:inherit;font-size:14px;font-weight:700;cursor:pointer}
+.nav{display:flex;gap:4px;flex-wrap:wrap}
+.nav a{color:#c7d6e6;padding:6px 10px;border-radius:8px;font-size:15px;font-weight:600}
+.find{margin-left:auto;display:flex;gap:8px}
+.find input{width:220px;padding:7px 10px;border:1px solid #33465e;border-radius:8px;background:#16283d;color:#fff;font:inherit;font-size:14px}
+.find button{padding:7px 14px;border:0;border-radius:8px;background:#0a5cba;color:#fff;font:inherit;font-size:14px;font-weight:700;cursor:pointer}
 main#view{padding:28px 20px 48px;min-height:60vh}
-.footer{border-top:1px solid #e3e8ef;padding:22px 0 34px;color:#6b7a90;font-size:14px}
+.loading{padding:40px 0;color:#47586e}
+.loading .bar{height:6px;width:180px;border-radius:3px;margin-top:14px;background:linear-gradient(90deg,#0a5cba,#5ec8f8);animation:pulse 1.1s ease-in-out infinite alternate}
+@keyframes pulse{from{opacity:.45}to{opacity:1}}
+.footer{border-top:1px solid #e4e9f0;padding:22px 0 34px;color:#6f7f93;font-size:14px}
 .footer p{margin:0 0 6px}
+.footer-netstat{font-variant-numeric:tabular-nums}
 .visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;clip:rect(0 0 0 0);clip-path:inset(50%);overflow:hidden;white-space:nowrap}
-.skip{position:absolute;left:12px;top:-48px;z-index:10;background:#fff;color:#0b5cad;font-weight:700;padding:8px 14px;border-radius:8px}
-.skip:focus{top:8px;text-decoration:none}
+.skip{position:absolute;left:12px;top:-48px;z-index:10;background:#fff;color:#0a5cba;font-weight:700;padding:8px 14px;border-radius:8px}
+.skip:focus{top:8px}
+.errorbox{background:#fdecea;border:1px solid #f3c1bd;border-radius:10px;padding:18px 20px;margin:16px 0}
+.errorbox h2{margin:0 0 6px;font-size:18px}
+@media(max-width:760px){.find{margin-left:0;flex:1;width:100%}.find input{flex:1;width:auto;min-width:0}}
 </style>
 </head>
 <body>
 <a class="skip" href="#view">Skip to content</a>
-<header class="topbar">
-  <div class="wrap topbar-inner">
+<header class="masthead">
+  <div class="wrap masthead-in">
     <a class="brand" href="#/">make<span class="brand-dot">.</span>fun</a>
-    <nav class="topnav" aria-label="Sections">
+    <nav class="nav" aria-label="Main">
       <a href="#/" data-nav="board">Bounties</a>
-      <a href="#/bounty/makefun-frontend-01" data-nav="featured">This bounty</a>
-      <a href="#/bounty/makefun-frontend-01/leaderboard" data-nav="featured">Leaderboard</a>
     </nav>
-    <form class="topsearch" id="topsearch" role="search" aria-label="Find an account or bounty">
-      <label class="visually-hidden" for="q">Account handle or bounty slug</label>
-      <input id="q" name="q" type="search" placeholder="handle or bounty slug…  ( / to focus)" autocomplete="off" spellcheck="false">
-      <button type="submit">Go</button>
+    <form class="find" id="topsearch" role="search">
+      <label class="visually-hidden" for="q">Search a bounty slug or handle</label>
+      <input id="q" type="search" placeholder="Slug or @handle…" autocomplete="off">
+      <button type="submit">Search</button>
     </form>
   </div>
 </header>
 <main id="view" class="wrap" aria-live="polite">
-  <noscript><p>This frontend needs JavaScript: it reads the live make.fun API in your browser and renders the board, bounty pages, leaderboards and profiles. Nothing here signs you in or writes anything.</p></noscript>
+  <div class="loading" role="status"><p>Loading…</p><div class="bar" aria-hidden="true"></div></div>
 </main>
 <footer class="footer">
   <div class="wrap">
-    <p>Unofficial read-only frontend for <a href="https://make.fun">make.fun</a>. Data comes live from the public make.fun API; nothing here signs you in or writes anything.</p>
-    <p class="footer-note">Entry fees join the pot. A bounty past its deadline is shown as ended even while its status still reads open. Deadlines tick live; leaderboards are paged 25 entries at a time.</p>
-    <p class="footer-netstat" id="netstat" aria-live="off"></p>
+    <p class="footer-netstat" id="netstat">No API requests yet — the first view costs one.</p>
+    <p class="footer-note">A read-only frontend for <a href="https://make.fun">make.fun</a> — live bounties, leaderboards, entries and profiles. Data comes from the public make.fun API; this page sends no data anywhere.</p>
   </div>
 </footer>
 <script>
-// First load is this file alone: the stylesheet and the app load after
-// it, and the app renders only once the stylesheet is in (or after 3 s).
-(function(){var done=false;function go(){if(done)return;done=true;import('./main.js');}var l=document.createElement('link');l.rel='stylesheet';l.href='style.css';l.onload=go;l.onerror=go;document.head.appendChild(l);setTimeout(go,3000);})();
+window.__shotReady = false;
+(function () {
+  var started = false;
+  function start() {
+    if (started) return;
+    started = true;
+    import('./main.js').catch(function () {
+      var view = document.getElementById('view');
+      if (view) view.innerHTML = '<div class="errorbox" role="alert"><h2>Could not load this page</h2><p>The app script failed to load. Please refresh the page.</p></div>';
+      window.__shotReady = true;
+    });
+  }
+  var link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = './style.css';
+  link.onload = start;
+  link.onerror = start;
+  document.head.appendChild(link);
+  setTimeout(start, 3000);
+})();
 </script>
 </body>
 </html>

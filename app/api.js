@@ -1,117 +1,127 @@
-// make.fun public API, read-only GET. The API answers any origin (CORS) and
-// its ETags are bound to the minute, so answers are cached in memory and
-// revalidated with If-None-Match. One view costs one request in the common
-// case; a second visit inside the cache window costs none, and two views
-// that ask for the same answer at the same moment share one request.
+// The make.fun public API, read-only GET requests, open to any origin.
+// Answers are cached in memory, so a second visit to the same view
+// costs no request at all, and a bounty the board already fetched is
+// reused instead of fetched again. Two callers asking for the same
+// answer at the same moment share one request in flight.
 //
-// The counter below is the app's honesty meter: every real fetch, every
-// answer served from the memory cache, and every request that joined one
-// already in flight is counted, and the footer shows the running total.
-// A view that costs nothing after the first visit says so on screen.
+// The tally below is the app's honesty meter: every real fetch, every
+// answer served from the memory cache, and every request that reused
+// an answer the app already held is counted, and the footer shows the
+// running total. A view that costs nothing after the first visit says
+// so on screen.
 
-const API = 'https://make.fun/api';
-const FRESH_MS = 45 * 1000;
+const API_ROOT = "https://make.fun/api";
 
-const cache = new Map();
-const inflight = new Map();
-
-// Running totals, read by the footer through stats(). updatedAt is the
+// Running totals, read by the footer through tally(). stamped is the
 // time of the last change, so the footer can say when the numbers moved.
-const counts = { network: 0, cached: 0, shared: 0, updatedAt: 0 };
-const listeners = new Set();
+const tallyBox = { network: 0, cached: 0, shared: 0, stamped: 0 };
+const watchers = new Set();
 
-function note() {
-  counts.updatedAt = Date.now();
-  const snapshot = stats();
-  listeners.forEach((fn) => {
-    try { fn(snapshot); } catch { /* a listener never breaks a fetch */ }
-  });
+function bump(kind) {
+  tallyBox[kind] += 1;
+  tallyBox.stamped = Date.now();
+  const snap = tally();
+  for (const fn of watchers) {
+    try { fn(snap); } catch { /* a watcher never breaks a fetch */ }
+  }
 }
 
-// A snapshot of the counters, for the footer. A fresh copy each time, so
-// a caller cannot move the app's own numbers.
-export function stats() {
-  return { network: counts.network, cached: counts.cached, shared: counts.shared, updatedAt: counts.updatedAt };
+// A snapshot of the counters, for the footer. A fresh copy each time,
+// so a caller cannot move the app's own numbers.
+export function tally() {
+  return { network: tallyBox.network, cached: tallyBox.cached, shared: tallyBox.shared, stamped: tallyBox.stamped };
 }
 
 // Subscribe to counter changes. Returns an unsubscribe function.
-export function onStats(fn) {
-  listeners.add(fn);
-  return () => listeners.delete(fn);
+export function subscribe(fn) {
+  watchers.add(fn);
+  return () => watchers.delete(fn);
 }
 
-function cacheKey(path) {
-  return path;
-}
+// Answers fetched from the network, keyed by their full URL.
+const answers = new Map();
+// Requests already in flight, keyed the same way, so two callers
+// asking at once share one fetch instead of starting two.
+const pending = new Map();
+// Bounties the board already fetched, keyed by slug, so a bounty page
+// or leaderboard opened from the board reuses one instead of
+// fetching it again.
+const boardBounties = new Map();
 
-async function fetchOnce(path, hit) {
-  const headers = {};
-  if (hit && hit.etag) headers['If-None-Match'] = hit.etag;
-  let res;
-  counts.network += 1;
-  note();
+async function pull(path) {
+  const url = API_ROOT + path;
+  const held = answers.get(url);
+  if (held !== undefined) {
+    bump('cached');
+    return held;
+  }
+  const flying = pending.get(url);
+  if (flying) {
+    bump('shared');
+    return flying;
+  }
+  const job = (async () => {
+    bump('network');
+    const res = await fetch(url);
+    if (!res.ok) {
+      const err = new Error('make.fun answered ' + res.status);
+      err.status = res.status;
+      throw err;
+    }
+    const data = await res.json();
+    answers.set(url, data);
+    return data;
+  })();
+  pending.set(url, job);
   try {
-    res = await fetch(API + path, { headers });
-  } catch (err) {
-    if (hit) { counts.cached += 1; note(); return hit.data; }
-    throw new Error('network');
+    return await job;
+  } finally {
+    pending.delete(url);
   }
-  if (res.status === 304 && hit) {
-    hit.at = Date.now();
-    counts.cached += 1;
-    note();
-    return hit.data;
+}
+
+// The live board. activity=times leaves out the activity a board does
+// not show. Every bounty on it is remembered by slug for reuse.
+export async function boardList() {
+  const data = await pull('/competitions?status=open&activity=times');
+  const items = Array.isArray(data.items) ? data.items : [];
+  for (const b of items) {
+    if (b && typeof b.slug === 'string') boardBounties.set(b.slug, b);
   }
-  if (!res.ok) {
-    if (hit) { counts.cached += 1; note(); return hit.data; }
-    const err = new Error('http ' + res.status);
-    err.status = res.status;
-    throw err;
+  return items;
+}
+
+// One bounty, by slug. When the board already holds it, reuse that
+// copy and count it as shared instead of spending a request.
+export async function bountyOne(slug) {
+  const known = boardBounties.get(slug);
+  if (known) {
+    bump('shared');
+    return known;
   }
-  const data = await res.json();
-  cache.set(cacheKey(path), { data, etag: res.headers.get('etag'), at: Date.now() });
-  return data;
+  return pull('/competitions/' + encodeURIComponent(slug));
 }
 
-async function get(path) {
-  const key = cacheKey(path);
-  const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < FRESH_MS) { counts.cached += 1; note(); return hit.data; }
-  const pending = inflight.get(key);
-  if (pending) { counts.shared += 1; note(); return pending; }
-  const task = fetchOnce(path, hit).finally(() => inflight.delete(key));
-  inflight.set(key, task);
-  return task;
+// A bounty's entries, newest first: the first page of its submissions.
+// Returns { items, next } where next is the cursor for the page after,
+// or null when there is no next page.
+export async function entryPage(slug, limit = 50) {
+  const data = await pull('/competitions/' + encodeURIComponent(slug) + '/submissions?limit=' + limit);
+  return { items: Array.isArray(data.items) ? data.items : [], next: data.next_cursor || null };
 }
 
-// The live board. activity=times leaves out the activity a board does not show.
-export function getBounties(status) {
-  const q = status ? '?status=' + encodeURIComponent(status) + '&activity=times' : '?activity=times';
-  return get('/competitions' + q);
+// The next page of a bounty's entries, after a cursor from entryPage.
+export async function entryNext(slug, cursor, limit = 50) {
+  const data = await pull('/competitions/' + encodeURIComponent(slug) + '/submissions?limit=' + limit + '&cursor=' + encodeURIComponent(cursor));
+  return { items: Array.isArray(data.items) ? data.items : [], next: data.next_cursor || null };
 }
 
-// One bounty, by slug.
-export function getBounty(slug) {
-  return get('/competitions/' + encodeURIComponent(slug));
-}
-
-// A bounty's leaderboard: { entries: [...] }.
-export function getLeaderboard(slug) {
-  return get('/competitions/' + encodeURIComponent(slug) + '/leaderboard');
-}
-
-// A bounty's entries, newest first.
-export function getEntries(slug, limit) {
-  const n = limit || 20;
-  return get('/competitions/' + encodeURIComponent(slug) + '/submissions?limit=' + n);
+// A bounty's leaderboard: { entries: [...] } ranked by judge win rate.
+export async function rankList(slug) {
+  return pull('/competitions/' + encodeURIComponent(slug) + '/leaderboard');
 }
 
 // An account's public profile, by handle.
-export function getProfile(handle) {
-  return get('/profiles/' + encodeURIComponent(handle));
-}
-
-// A bounty's entry fee and vault.
-export function getEntryFee(slug) {
-  return get('/competitions/' + encodeURIComponent(slug) + '/entry-fee');
+export async function person(handle) {
+  return pull('/profiles/' + encodeURIComponent(handle));
 }

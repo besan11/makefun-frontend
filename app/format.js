@@ -1,121 +1,153 @@
-// Small formatters for the values the API returns. Everything here is pure:
-// the same input always gives the same output, so a view can re-render
-// without the numbers moving under it.
+// Formatting helpers for the make.fun frontend. Every function here is
+// pure: the same input always gives the same output, so a view can be
+// re-rendered without the numbers moving under it.
 
-// Text made safe to put inside HTML.
-export function esc(value) {
-  return String(value ?? '').replace(/[&<>"']/g, (c) => '&#' + c.charCodeAt(0) + ';');
+/** Text made safe to put inside HTML. */
+export function safe(text) {
+  return String(text ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
-// The first letter of a name, uppercased, for an initial tile. Falls back
-// to '?' so a tile never renders blank.
-export function initialLetter(text) {
+const MONTHS = 'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split(' ');
+
+function pad(n) {
+  return String(n).padStart(2, '0');
+}
+
+/** Local clock reading, "06:12:08", for the footer stamp. */
+export function clock(when = new Date()) {
+  return pad(when.getHours()) + ':' + pad(when.getMinutes()) + ':' + pad(when.getSeconds());
+}
+
+/**
+ * A judge win rate stored in micro-units (950587 means 95.0587%) as a
+ * readable percent, never above 100. "95.1%".
+ */
+export function pct(micro) {
+  const n = Number(micro);
+  if (!Number.isFinite(n)) return '—';
+  return Math.min(100, n / 10000).toFixed(1) + '%';
+}
+
+/** A dollar amount: 719 -> "$719", 43.82 -> "$43.82". */
+export function usd(amount) {
+  const n = typeof amount === 'string' ? Number.parseFloat(amount) : Number(amount);
+  if (!Number.isFinite(n)) return '—';
+  const rounded = Math.round(n * 100) / 100;
+  const parts = String(rounded).split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return '$' + parts.join('.');
+}
+
+/** 1234567 -> "1,234,567". */
+export function num(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '—';
+  return String(Math.trunc(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+/** A UTC timestamp as "17 Nov 2026, 12:30 UTC". */
+export function when(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()] + ' ' + d.getUTCFullYear() + ', ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ' UTC';
+}
+
+/** A short UTC date, "16 Nov 2026". */
+export function day(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()] + ' ' + d.getUTCFullYear();
+}
+
+/** Time left until an ISO deadline: "2d 3h left", "4h 25m left", "45m left", "Ended". */
+export function left(iso, now = Date.now()) {
+  const end = new Date(iso).getTime();
+  if (Number.isNaN(end)) return '—';
+  const ms = end - now;
+  if (ms <= 0) return 'Ended';
+  const min = Math.floor(ms / 60000);
+  const days = Math.floor(min / 1440);
+  if (days > 0) return days + 'd ' + Math.floor((min % 1440) / 60) + 'h left';
+  const hours = Math.floor(min / 60);
+  if (hours > 0) return hours + 'h ' + (min % 60) + 'm left';
+  return min + 'm left';
+}
+
+/** A deadline's remaining milliseconds, for sorting and ticking. */
+export function leftMs(iso, now = Date.now()) {
+  const end = new Date(iso).getTime();
+  if (Number.isNaN(end)) return Number.POSITIVE_INFINITY;
+  return end - now;
+}
+
+/** How long ago an ISO timestamp was: "3h ago", "2d ago", "just now". */
+export function ago(iso, now = Date.now()) {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '—';
+  const ms = now - then;
+  if (ms < 60000) return 'just now';
+  const min = Math.floor(ms / 60000);
+  if (min < 60) return min + 'm ago';
+  const hours = Math.floor(min / 60);
+  if (hours < 24) return hours + 'h ago';
+  const days = Math.floor(hours / 24);
+  if (days < 30) return days + 'd ago';
+  return day(iso);
+}
+
+/** "1 entry" or "252 entries". */
+export function countLabel(n) {
+  const c = Number(n) || 0;
+  return num(c) + (c === 1 ? ' entry' : ' entries');
+}
+
+/** A rank as an ordinal: 1 -> "1st", 2 -> "2nd", 3 -> "3rd", 4 -> "4th". */
+export function place(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '—';
+  const lastTwo = v % 100;
+  const last = v % 10;
+  const suffix = lastTwo >= 11 && lastTwo <= 13 ? 'th' : last === 1 ? 'st' : last === 2 ? 'nd' : last === 3 ? 'rd' : 'th';
+  return v + suffix;
+}
+
+/** The first letter of a name, uppercased, for an initial tile. */
+export function initial(text) {
   const clean = String(text ?? '').trim();
   const hit = clean.match(/[A-Za-z0-9]/);
   return hit ? hit[0].toUpperCase() : '?';
 }
 
-// A rank as an ordinal: 1 -> '1st', 2 -> '2nd', 3 -> '3rd', 4 -> '4th'.
-export function ordinal(n) {
-  const num = Number(n);
-  if (!Number.isFinite(num)) return '—';
-  const lastTwo = num % 100;
-  const last = num % 10;
-  const suffix = lastTwo >= 11 && lastTwo <= 13 ? 'th'
-    : last === 1 ? 'st'
-    : last === 2 ? 'nd'
-    : last === 3 ? 'rd' : 'th';
-  return num + suffix;
+/** Shorten a wallet address: "HjjcMh…95NPz". */
+export function shortAddr(address) {
+  const a = String(address ?? '');
+  if (a.length <= 10) return a;
+  return a.slice(0, 6) + '…' + a.slice(-4);
 }
 
-// A dollar amount ('627.50', 500, or null) as '$627.50' or '$500'.
-export function money(value) {
-  if (value === null || value === undefined || value === '') return '—';
-  const n = Number(value);
-  if (!Number.isFinite(n)) return '—';
-  return n.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: Number.isInteger(n) ? 0 : 2,
-    maximumFractionDigits: 2,
-  });
-}
-
-// A deadline as a date in UTC, for example '17 Nov 2026, 12:30 UTC'.
-export function date(iso) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const pad = (n) => String(n).padStart(2, '0');
-  return d.getUTCDate() + ' ' + months[d.getUTCMonth()] + ' ' + d.getUTCFullYear() + ', ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ' UTC';
-}
-
-// The time until a deadline: '2d 4h left', '35m left', '12s left', or 'ended'.
-export function timeLeft(iso) {
-  const ms = new Date(iso).getTime() - Date.now();
-  if (Number.isNaN(ms) || ms <= 0) return 'ended';
-  const days = Math.floor(ms / 86400000);
-  const hours = Math.floor((ms % 86400000) / 3600000);
-  const minutes = Math.floor((ms % 3600000) / 60000);
-  const seconds = Math.floor((ms % 60000) / 1000);
-  if (days > 0) return days + 'd ' + hours + 'h left';
-  if (hours > 0) return hours + 'h ' + minutes + 'm left';
-  if (minutes > 0) return minutes + 'm ' + seconds + 's left';
-  return seconds + 's left';
-}
-
-// Whether a bounty still takes entries. A bounty past its deadline may
-// still read status open until its results publish, so the deadline
-// decides, not the status alone.
-export function entryState(bounty) {
-  const deadlineMs = new Date(bounty.deadline).getTime();
-  if (Number.isNaN(deadlineMs)) return 'unknown';
-  if (deadlineMs <= Date.now()) return 'ended';
+/** A bounty's entry phase from its deadline and status. */
+export function phaseOf(bounty) {
+  const end = new Date(bounty.deadline).getTime();
+  if (Number.isNaN(end)) return 'unknown';
+  if (end <= Date.now()) return 'ended';
   if (bounty.status && bounty.status !== 'open') return 'closed';
-  if (deadlineMs - Date.now() < 24 * 3600000) return 'closing';
+  if (end - Date.now() < 24 * 3600 * 1000) return 'closing';
   return 'open';
 }
 
-// Whether a bounty is still open for entries (open or closing soon).
-export function isLive(bounty) {
-  const state = entryState(bounty);
-  return state === 'open' || state === 'closing';
+/** Whether a bounty still takes entries (open or closing soon). */
+export function openNow(bounty) {
+  const phase = phaseOf(bounty);
+  return phase === 'open' || phase === 'closing';
 }
 
-// The reward as it stands now: the prize plus any entry fees paid into it.
-export function pot(bounty) {
-  return money(bounty.potUsd ?? bounty.rewardAmount);
-}
-
-// '1 entry' or '252 entries'.
-export function entriesLabel(n) {
-  const count = Number(n) || 0;
-  return count.toLocaleString('en-US') + (count === 1 ? ' entry' : ' entries');
-}
-
-// A short date, for example '16 Nov 2026'.
-export function shortDate(iso) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return d.getUTCDate() + ' ' + months[d.getUTCMonth()] + ' ' + d.getUTCFullYear();
-}
-
-// The time of day, local, as '14:03:22', for the footer's request
-// counter: it says when the numbers last moved.
-export function clockTime(ms) {
-  const d = new Date(ms);
-  if (Number.isNaN(d.getTime())) return '—';
-  const pad = (n) => String(n).padStart(2, '0');
-  return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
-}
-
-// A rate as a percentage with one decimal, or a dash when there is none.
-// A rate cannot pass 100%, so a value outside 0–1 is clamped rather
-// than shown as a number no win rate can be.
-export function rate(value) {
-  if (value === null || value === undefined || value === '') return '—';
-  const n = Number(value);
-  if (!Number.isFinite(n)) return '—';
-  return (Math.min(1, Math.max(0, n)) * 100).toFixed(1) + '%';
+/** "Closing soon" when a deadline is under a day away and still open. */
+export function closingSoon(iso, now = Date.now()) {
+  const ms = leftMs(iso, now);
+  return ms > 0 && ms < 24 * 3600 * 1000;
 }

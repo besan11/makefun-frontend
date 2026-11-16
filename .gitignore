@@ -1,9 +1,10 @@
-# Local build outputs (dossier.json + copied app/screenshots) — rebuilt by main.ts.
+# Build output from main.ts (dossier.json plus the copied app/ and
+# screenshots/) — rebuilt on every run, never part of the entry.
 out/
 out2/
-# Editor and OS droppings, never part of the entry.
+# The entry has no dependencies, so a node_modules folder here would
+# only bloat the snapshot.
+node_modules/
+# Editor and OS droppings.
 .DS_Store
 *.log
-# A stray node_modules would bloat the snapshot if anyone ever runs npm
-# here; the entry has no dependencies, so nothing should install one.
-node_modules/

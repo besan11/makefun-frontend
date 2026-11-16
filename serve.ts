@@ -1,76 +1,65 @@
-// A tiny static server for app/, for local development only. Run it from
-// this directory and open http://localhost:8080 (or --port <n>).
-// It serves only files under app/, sends the MIME types a browser needs,
-// and refuses anything outside that directory.
+// A tiny static server for local development: serves the app/ folder
+// on http://localhost:8080. No build step, no dependencies, Node 22
+// stdlib only.
+//
+//   node serve.ts            serves on 8080
+//   node serve.ts --port 9000
+//   MAKEFUN_PORT=9000 node serve.ts
+//
+// Paths are resolved inside app/ and refused outside it, so a request
+// for ../ can never read a file above the app folder.
 
-import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { extname, join, normalize, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { extname, join, resolve } from 'node:path';
 
-const appRoot = resolve(fileURLToPath(new URL('./app', import.meta.url)));
-const argv = process.argv.slice(2);
-const portFlag = argv.indexOf('--port');
-const flagPort = portFlag === -1 ? NaN : Number(argv[portFlag + 1]);
-// The port, in order: --port, the MAKEFUN_PORT environment variable,
-// then 8080. The screenshot script sets MAKEFUN_PORT so the server and
-// the shots agree on a port without hardcoding it in two places.
-const envPort = Number(process.env.MAKEFUN_PORT);
-const port = (Number.isInteger(flagPort) && flagPort > 0 && flagPort < 65536) ? flagPort
-  : (Number.isInteger(envPort) && envPort > 0 && envPort < 65536) ? envPort : 8080;
+const APP = resolve(new URL('.', import.meta.url).pathname, 'app');
 
-const mimeTypes = {
+const TYPES = {
   '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
   '.avif': 'image/avif',
-  '.txt': 'text/plain; charset=utf-8',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
-  '.woff2': 'font/woff2',
+  '.txt': 'text/plain; charset=utf-8',
 };
 
-createServer((request, response) => {
-  const url = new URL(request.url ?? '/', 'http://localhost');
-  let pathname;
-  try {
-    pathname = decodeURIComponent(url.pathname);
-  } catch {
-    response.writeHead(400).end('bad request');
+function portFromArgs() {
+  const args = process.argv.slice(2);
+  const at = args.indexOf('--port');
+  if (at >= 0 && args[at + 1]) {
+    const n = Number(args[at + 1]);
+    if (Number.isInteger(n) && n > 0 && n < 65536) return n;
+  }
+  const env = Number(process.env.MAKEFUN_PORT);
+  if (Number.isInteger(env) && env > 0 && env < 65536) return env;
+  return 8080;
+}
+
+const PORT = portFromArgs();
+
+const server = createServer((req, res) => {
+  const raw = decodeURIComponent(new URL(req.url || '/', 'http://localhost').pathname);
+  const wanted = raw === '/' ? '/index.html' : raw;
+  const file = resolve(join(APP, wanted));
+  // Refuse anything that escapes the app folder, and anything that is
+  // not a plain file on disk.
+  if (!file.startsWith(APP + '/') || !existsSync(file) || !statSync(file).isFile()) {
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+    res.end('Not found\n');
     return;
   }
-  if (pathname.endsWith('/')) pathname += 'index.html';
-  const file = resolve(join(appRoot, normalize(pathname)));
-  if (file !== appRoot && !file.startsWith(appRoot + sep)) {
-    response.writeHead(403).end('forbidden');
-    return;
-  }
-  let size;
-  try {
-    const stats = statSync(file);
-    if (!stats.isFile()) throw new Error('not a file');
-    size = stats.size;
-  } catch {
-    response.writeHead(404).end('not found');
-    return;
-  }
-  response.writeHead(200, {
-    'content-type': mimeTypes[extname(file).toLowerCase()] ?? 'application/octet-stream',
-    'content-length': size,
-    'cache-control': 'no-store',
-    'x-content-type-options': 'nosniff',
-  });
-  if (request.method === 'HEAD') {
-    response.end();
-    return;
-  }
-  createReadStream(file).pipe(response);
-}).listen(port, '127.0.0.1', () => {
-  console.log('app/ is on http://localhost:' + port);
+  res.writeHead(200, { 'content-type': TYPES[extname(file).toLowerCase()] || 'application/octet-stream' });
+  res.end(readFileSync(file));
+});
+
+server.listen(PORT, '127.0.0.1', () => {
+  console.log('Serving app/ at http://localhost:' + PORT);
 });
