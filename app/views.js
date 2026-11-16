@@ -9,11 +9,17 @@ import { date, entriesLabel, entryState, esc, money, pot, rate, shortDate, timeL
 const API_ORIGIN = 'https://make.fun';
 
 // An <img> for an image the API points at. A relative path lives on
-// make.fun; an absolute URL loads from where it points.
+// make.fun; an absolute URL loads from where it points. If the image
+// itself fails to load (a host down, a cert a browser will not trust),
+// swap in an inline initial tile instead of leaving a broken image.
 function img(src, alt, cls) {
   if (!src) return '<span class="' + cls + '" aria-hidden="true"></span>';
   const url = src.startsWith('/') ? API_ORIGIN + src : src;
-  return '<img crossorigin="anonymous" src="' + esc(url) + '" alt="' + esc(alt) + '" class="' + cls + '" loading="lazy">';
+  const letter = (alt || '?').trim().charAt(0) || '?';
+  const tile = 'data:image/svg+xml,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><rect width="48" height="48" fill="#e2e8f0"/><text x="24" y="32" font-size="24" font-family="sans-serif" fill="#64748b" text-anchor="middle">' + letter + '</text></svg>'
+  );
+  return '<img crossorigin="anonymous" src="' + esc(url) + '" alt="' + esc(alt) + '" class="' + cls + '" loading="lazy" onerror="this.onerror=null;this.src=\'' + tile + '\'">';
 }
 
 function statusTag(state) {

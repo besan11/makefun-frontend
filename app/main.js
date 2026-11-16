@@ -45,6 +45,15 @@ function show(html) {
   setShotReady(true);
 }
 
+// A loading state is not a finished page: render it without raising
+// __shotReady, so a screenshot script never captures a spinner as the
+// finished view. The data, error or not-found render that follows is
+// what raises it, via show().
+function showLoading(text) {
+  view.innerHTML = loadingView(text);
+  setShotReady(false);
+}
+
 function fail(err, retry) {
   const message = err && err.status === 404
     ? 'The API answered 404: this bounty or account does not exist.'
@@ -64,7 +73,7 @@ async function renderBoard() {
   markNav('board');
   setShotReady(false);
   if (!boardData) {
-    show(loadingView('Loading the live bounties…'));
+    showLoading('Loading the live bounties…');
     try {
       boardData = await getBounties('open');
     } catch (err) {
@@ -117,7 +126,7 @@ async function renderBounty(slug) {
   setTitle('Bounty');
   markNav('board');
   setShotReady(false);
-  show(loadingView('Loading the bounty…'));
+  showLoading('Loading the bounty…');
   let b;
   try {
     b = await getBounty(slug);
@@ -147,7 +156,7 @@ async function renderLeaderboard(slug) {
   setTitle('Leaderboard');
   markNav('board');
   setShotReady(false);
-  show(loadingView('Loading the leaderboard…'));
+  showLoading('Loading the leaderboard…');
   let lb;
   let bounty = null;
   try {
@@ -177,7 +186,7 @@ async function renderEntries(slug) {
   setTitle('Entries');
   markNav('board');
   setShotReady(false);
-  show(loadingView('Loading the entries…'));
+  showLoading('Loading the entries…');
   let bounty;
   try {
     bounty = await getBounty(slug);
@@ -208,7 +217,7 @@ async function renderProfile(handle) {
   setTitle('@' + handle);
   markNav('');
   setShotReady(false);
-  show(loadingView('Loading the profile…'));
+  showLoading('Loading the profile…');
   let p;
   try {
     p = await getProfile(handle);
@@ -248,7 +257,7 @@ searchForm.addEventListener('submit', async (ev) => {
   const raw = searchInput.value.trim().replace(/^@/, '');
   if (!raw) return;
   setShotReady(false);
-  show(loadingView('Searching…'));
+  showLoading('Searching…');
   try {
     await getBounty(raw);
     location.hash = '#/bounty/' + encodeURIComponent(raw);
