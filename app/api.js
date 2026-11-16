@@ -10,6 +10,29 @@ const FRESH_MS = 45 * 1000;
 const cache = new Map();
 const inflight = new Map();
 
+// What this session has cost so far: real network fetches, answers served
+// from the cache instead, and requests shared with one already in flight.
+// The footer shows it, so the price of a session is visible next to the
+// data it bought. A listener never breaks a fetch: its errors are caught.
+const stats = { fetches: 0, cacheHits: 0, shared: 0 };
+const statListeners = new Set();
+
+export function requestStats() {
+  return { ...stats };
+}
+
+export function onRequestStats(fn) {
+  statListeners.add(fn);
+  return () => statListeners.delete(fn);
+}
+
+function noteStats() {
+  const snapshot = { ...stats };
+  statListeners.forEach((fn) => {
+    try { fn(snapshot); } catch { /* stats stay silent */ }
+  });
+}
+
 function cacheKey(path) {
   return path;
 }
@@ -17,6 +40,8 @@ function cacheKey(path) {
 async function fetchOnce(path, hit) {
   const headers = {};
   if (hit && hit.etag) headers['If-None-Match'] = hit.etag;
+  stats.fetches++;
+  noteStats();
   let res;
   try {
     res = await fetch(API + path, { headers });
@@ -42,9 +67,17 @@ async function fetchOnce(path, hit) {
 async function get(path) {
   const key = cacheKey(path);
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < FRESH_MS) return hit.data;
+  if (hit && Date.now() - hit.at < FRESH_MS) {
+    stats.cacheHits++;
+    noteStats();
+    return hit.data;
+  }
   const pending = inflight.get(key);
-  if (pending) return pending;
+  if (pending) {
+    stats.shared++;
+    noteStats();
+    return pending;
+  }
   const task = fetchOnce(path, hit).finally(() => inflight.delete(key));
   inflight.set(key, task);
   return task;

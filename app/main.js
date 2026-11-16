@@ -2,9 +2,13 @@
 // its leaderboard and entries, and an account's public profile, on hash
 // routes. Read-only: every view is one GET to the public make.fun API in
 // the common case — a bounty page fetches its bounty and its recent
-// entries in parallel — cached in memory, so a second visit inside the
-// cache window costs no request at all. Deadlines tick in place every
-// 30 seconds without rebuilding the page.
+// entries in parallel, and a leaderboard reached from the board costs
+// one request because the bounty's title comes from the board data
+// already in memory — cached, so a second visit inside the cache window
+// costs no request at all. The footer counts what a session spends:
+// real requests, answers from the cache, and requests shared with one
+// already in flight. Deadlines tick in place every 30 seconds without
+// rebuilding the page.
 //
 //   #/                          the board
 //   #/bounty/<slug>             one bounty
@@ -16,7 +20,7 @@
 // (or its honest error state) is on screen, so a screenshot script
 // knows when to capture.
 
-import { getBounties, getBounty, getEntries, getLeaderboard, getProfile } from './api.js';
+import { getBounties, getBounty, getEntries, getLeaderboard, getProfile, onRequestStats, requestStats } from './api.js';
 import { boardView, bountyView, entriesView, errorView, leaderboardView, loadingView, notFoundView, profileView } from './views.js';
 import { timeLeft } from './format.js';
 
@@ -32,6 +36,23 @@ let boardData = null;
 let leaderboardData = null;
 let leaderboardSlug = null;
 let leaderboardPage = 1;
+
+// The footer's request line: what this session has spent so far. It
+// updates whenever a fetch, a cache hit or a shared request happens,
+// and once a minute it also refreshes the clock next to it.
+const reqStatsEl = document.getElementById('reqstats');
+
+function updateReqStats() {
+  if (!reqStatsEl) return;
+  const s = requestStats();
+  const parts = [s.fetches + (s.fetches === 1 ? ' request' : ' requests')];
+  if (s.cacheHits) parts.push(s.cacheHits + ' from cache');
+  if (s.shared) parts.push(s.shared + ' shared');
+  reqStatsEl.textContent = parts.join(' · ') + ' · updated ' + new Date().toLocaleTimeString('en-GB');
+}
+
+onRequestStats(updateReqStats);
+setInterval(updateReqStats, 60000);
 
 function setShotReady(ready) {
   window.__shotReady = ready;
@@ -178,9 +199,13 @@ async function renderLeaderboard(slug) {
   if (leaderboardSlug !== slug || !leaderboardData) {
     leaderboardPage = 1;
     showLoading('Loading the leaderboard…');
+    // A visit from the board already holds this bounty in memory: its
+    // title comes from the cache, so the leaderboard costs one request
+    // instead of two. A direct link still fetches the bounty.
+    const known = boardData && (boardData.items || []).find((b) => b.slug === slug);
     const [lbResult, bountyResult] = await Promise.allSettled([
       getLeaderboard(slug),
-      getBounty(slug),
+      known || getBounty(slug),
     ]);
     if (lbResult.status === 'rejected') {
       const err = lbResult.reason;
@@ -208,10 +233,12 @@ async function renderEntries(slug) {
   markNav('board');
   setShotReady(false);
   showLoading('Loading the entries…');
-  let bounty;
-  try {
-    bounty = await getBounty(slug);
-  } catch (err) {
+  const [bountyResult, entriesResult] = await Promise.allSettled([
+    getBounty(slug),
+    getEntries(slug, 50),
+  ]);
+  if (bountyResult.status === 'rejected') {
+    const err = bountyResult.reason;
     if (err && err.status === 404) {
       show(notFoundView('bounty with the slug “' + slug + '”'));
       window.scrollTo(0, 0);
@@ -220,14 +247,13 @@ async function renderEntries(slug) {
     fail(err, () => renderEntries(slug));
     return;
   }
+  const bounty = bountyResult.value;
   setTitle((bounty.title || 'Bounty') + ' entries');
-  let data;
-  try {
-    data = await getEntries(slug, 50);
-  } catch (err) {
-    fail(err, () => renderEntries(slug));
+  if (entriesResult.status === 'rejected') {
+    fail(entriesResult.reason, () => renderEntries(slug));
     return;
   }
+  const data = entriesResult.value;
   show(entriesView(data, bounty));
   window.scrollTo(0, 0);
 }
