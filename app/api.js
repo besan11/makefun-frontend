@@ -1,22 +1,20 @@
 // make.fun public API, read-only GET. The API answers any origin (CORS) and
 // its ETags are bound to the minute, so answers are cached in memory and
 // revalidated with If-None-Match. One view costs one request in the common
-// case; a second visit inside the cache window costs none.
+// case; a second visit inside the cache window costs none, and two views
+// that ask for the same answer at the same moment share one request.
 
 const API = 'https://make.fun/api';
 const FRESH_MS = 45 * 1000;
 
 const cache = new Map();
+const inflight = new Map();
 
 function cacheKey(path) {
   return path;
 }
 
-async function get(path) {
-  const key = cacheKey(path);
-  const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < FRESH_MS) return hit.data;
-
+async function fetchOnce(path, hit) {
   const headers = {};
   if (hit && hit.etag) headers['If-None-Match'] = hit.etag;
   let res;
@@ -37,8 +35,19 @@ async function get(path) {
     throw err;
   }
   const data = await res.json();
-  cache.set(key, { data, etag: res.headers.get('etag'), at: Date.now() });
+  cache.set(cacheKey(path), { data, etag: res.headers.get('etag'), at: Date.now() });
   return data;
+}
+
+async function get(path) {
+  const key = cacheKey(path);
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < FRESH_MS) return hit.data;
+  const pending = inflight.get(key);
+  if (pending) return pending;
+  const task = fetchOnce(path, hit).finally(() => inflight.delete(key));
+  inflight.set(key, task);
+  return task;
 }
 
 // The live board. activity=times leaves out the activity a board does not show.

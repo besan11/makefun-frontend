@@ -4,31 +4,36 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="A fast, read-only make.fun frontend: live bounty board, bounty pages, leaderboards and public profiles.">
+<meta name="theme-color" content="#0f1c2e">
 <title>make.fun — bounties, leaderboards, profiles</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231b2a4a'/%3E%3Ctext x='16' y='22' font-size='17' font-family='sans-serif' font-weight='bold' fill='%23f5c542' text-anchor='middle'%3Em%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 <script type="module" src="main.js"></script>
 </head>
 <body>
+<a class="skip" href="#view">Skip to content</a>
 <header class="topbar">
   <div class="wrap topbar-inner">
     <a class="brand" href="#/">make<span class="brand-dot">.</span>fun</a>
     <nav class="topnav" aria-label="Sections">
       <a href="#/" data-nav="board">Bounties</a>
       <a href="#/bounty/makefun-frontend-01" data-nav="featured">This bounty</a>
+      <a href="#/bounty/makefun-frontend-01/leaderboard" data-nav="featured">Leaderboard</a>
     </nav>
     <form class="topsearch" id="topsearch" role="search" aria-label="Find an account or bounty">
       <label class="visually-hidden" for="q">Account handle or bounty slug</label>
-      <input id="q" name="q" type="search" placeholder="handle or bounty slug…" autocomplete="off" spellcheck="false">
+      <input id="q" name="q" type="search" placeholder="handle or bounty slug…  ( / to focus)" autocomplete="off" spellcheck="false">
       <button type="submit">Go</button>
     </form>
   </div>
 </header>
-<main id="view" class="wrap" aria-live="polite"></main>
+<main id="view" class="wrap" aria-live="polite">
+  <noscript><p>This frontend needs JavaScript: it reads the live make.fun API in your browser and renders the board, bounty pages, leaderboards and profiles. Nothing here signs you in or writes anything.</p></noscript>
+</main>
 <footer class="footer">
   <div class="wrap">
     <p>Unofficial read-only frontend for <a href="https://make.fun">make.fun</a>. Data comes live from the public make.fun API; nothing here signs you in or writes anything.</p>
-    <p class="footer-note">Entry fees join the pot. A bounty past its deadline is shown as ended even while its status still reads open.</p>
+    <p class="footer-note">Entry fees join the pot. A bounty past its deadline is shown as ended even while its status still reads open. Deadlines tick live; leaderboards are paged 25 entries at a time.</p>
   </div>
 </footer>
 </body>

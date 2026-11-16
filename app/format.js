@@ -7,6 +7,27 @@ export function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (c) => '&#' + c.charCodeAt(0) + ';');
 }
 
+// The first letter of a name, uppercased, for an initial tile. Falls back
+// to '?' so a tile never renders blank.
+export function initialLetter(text) {
+  const clean = String(text ?? '').trim();
+  const hit = clean.match(/[A-Za-z0-9]/);
+  return hit ? hit[0].toUpperCase() : '?';
+}
+
+// A rank as an ordinal: 1 -> '1st', 2 -> '2nd', 3 -> '3rd', 4 -> '4th'.
+export function ordinal(n) {
+  const num = Number(n);
+  if (!Number.isFinite(num)) return '—';
+  const lastTwo = num % 100;
+  const last = num % 10;
+  const suffix = lastTwo >= 11 && lastTwo <= 13 ? 'th'
+    : last === 1 ? 'st'
+    : last === 2 ? 'nd'
+    : last === 3 ? 'rd' : 'th';
+  return num + suffix;
+}
+
 // A dollar amount ('627.50', 500, or null) as '$627.50' or '$500'.
 export function money(value) {
   if (value === null || value === undefined || value === '') return '—';
@@ -53,6 +74,12 @@ export function entryState(bounty) {
   if (bounty.status && bounty.status !== 'open') return 'closed';
   if (deadlineMs - Date.now() < 24 * 3600000) return 'closing';
   return 'open';
+}
+
+// Whether a bounty is still open for entries (open or closing soon).
+export function isLive(bounty) {
+  const state = entryState(bounty);
+  return state === 'open' || state === 'closing';
 }
 
 // The reward as it stands now: the prize plus any entry fees paid into it.

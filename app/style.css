@@ -1,3 +1,5 @@
+/* make.fun frontend: one small stylesheet, no framework, no webfont. */
+
 :root {
   --ink: #16202e;
   --ink-soft: #44536a;
@@ -44,6 +46,13 @@ a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid 
   overflow: hidden; white-space: nowrap;
 }
 
+.skip {
+  position: absolute; left: 12px; top: -48px; z-index: 10;
+  background: #fff; color: var(--brand); font-weight: 700;
+  padding: 8px 14px; border-radius: 8px; box-shadow: var(--shadow);
+}
+.skip:focus { top: 8px; text-decoration: none; }
+
 .wrap { max-width: 1020px; margin: 0 auto; padding: 0 20px; }
 
 /* Top bar */
@@ -55,7 +64,7 @@ a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid 
 .brand { color: #fff; font-size: 21px; font-weight: 800; letter-spacing: -0.02em; }
 .brand:hover { text-decoration: none; }
 .brand-dot { color: #5ec8f8; }
-.topnav { display: flex; gap: 4px; }
+.topnav { display: flex; gap: 4px; flex-wrap: wrap; }
 .topnav a {
   color: #c7d6e6; padding: 6px 10px; border-radius: 8px; font-size: 15px; font-weight: 600;
 }
@@ -85,7 +94,7 @@ h3 { font-size: 17px; margin: 0 0 4px; }
 .small { font-size: 13px; }
 .backlink { display: inline-block; margin-bottom: 12px; font-weight: 600; }
 
-/* Loading and errors */
+/* Loading, errors, empty states */
 .loading { padding: 40px 0; color: var(--ink-soft); }
 .loading .bar {
   height: 6px; width: 180px; border-radius: 3px; margin-top: 14px;
@@ -99,12 +108,20 @@ h3 { font-size: 17px; margin: 0 0 4px; }
 }
 .errorbox h2 { margin: 0 0 6px; font-size: 18px; }
 .errorbox p { margin: 0 0 12px; }
+.empty {
+  background: var(--card); border: 1px dashed var(--line-strong); border-radius: var(--radius);
+  padding: 22px 24px; margin: 16px 0; color: var(--ink-soft);
+}
+.empty p { margin: 0 0 6px; }
+.empty .empty-title { color: var(--ink); font-size: 17px; font-weight: 700; margin-bottom: 4px; }
+.empty .empty-action { margin: 14px 0 0; }
 .btn {
   display: inline-block; padding: 8px 16px; border: 0; border-radius: 8px;
   background: var(--brand); color: #fff; font: inherit; font-size: 15px; font-weight: 700;
   cursor: pointer;
 }
 .btn:hover { background: var(--brand-dark); text-decoration: none; }
+.btn:disabled { opacity: 0.45; cursor: default; }
 .btn-ghost { background: #fff; color: var(--brand); border: 1px solid var(--line-strong); }
 .btn-ghost:hover { background: #eef4fb; }
 
@@ -122,6 +139,12 @@ h3 { font-size: 17px; margin: 0 0 4px; }
 }
 .chip:hover { border-color: var(--brand); color: var(--brand); }
 .chip[aria-pressed="true"] { background: var(--navy); border-color: var(--navy); color: #fff; }
+.chip .n {
+  display: inline-block; min-width: 20px; padding: 0 5px; margin-left: 3px;
+  border-radius: 999px; background: #eef1f5; color: var(--ink-soft);
+  font-size: 12px; line-height: 1.6; text-align: center;
+}
+.chip[aria-pressed="true"] .n { background: rgba(255, 255, 255, 0.22); color: #fff; }
 .toolbar input[type="search"], .toolbar select {
   padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 8px;
   background: #fff; font: inherit; font-size: 14px; color: var(--ink);
@@ -210,6 +233,13 @@ td .handle { font-weight: 700; }
   width: 44px; height: 44px; border-radius: 8px; object-fit: cover; flex: none;
   background: #dfe6ee; border: 1px solid var(--line);
 }
+/* Initial tile: the fallback when an entry has no image, or its image
+   fails. Same box as a photo, initial centred, so a row never shows
+   an empty tile. */
+.tile {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: #dfe6ee; color: #5b6b7a; font-size: 20px; font-weight: 800;
+}
 .lb-entry .who { min-width: 0; }
 .lb-entry .who .t {
   font-weight: 700; display: block; overflow: hidden;
@@ -223,6 +253,11 @@ td .handle { font-weight: 700; }
 }
 .pill-ok { background: var(--green-bg); color: var(--green); }
 .pill-warn { background: var(--amber-bg); color: var(--amber); }
+.pager {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 14px 0 4px; flex-wrap: wrap;
+}
+.pager-info { color: var(--ink-faint); font-size: 14px; }
 
 /* Profile */
 .profile-head { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
@@ -230,6 +265,7 @@ td .handle { font-weight: 700; }
   width: 96px; height: 96px; border-radius: 50%; object-fit: cover; flex: none;
   border: 3px solid #fff; box-shadow: var(--shadow); background: #dfe6ee;
 }
+.avatar.tile { font-size: 40px; }
 .profile-head h1 { margin-bottom: 2px; }
 .profile-head .handle { color: var(--ink-faint); font-size: 17px; margin: 0 0 8px; }
 .profile-links { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
@@ -239,20 +275,43 @@ td .handle { font-weight: 700; }
 }
 .profile-links a:hover { border-color: var(--brand); color: var(--brand); text-decoration: none; }
 .recordgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 22px 0 8px; }
-.empty { color: var(--ink-faint); padding: 18px 0; }
 
 /* Footer */
 .footer { border-top: 1px solid var(--line); padding: 22px 0 34px; color: var(--ink-faint); font-size: 14px; }
 .footer p { margin: 0 0 6px; }
 .footer-note { font-size: 13px; }
 
+/* Phone */
 @media (max-width: 760px) {
   .topbar-inner { flex-wrap: wrap; gap: 10px; }
-  .topsearch { margin-left: 0; flex: 1; }
-  .topsearch input { flex: 1; width: auto; }
+  .topsearch { margin-left: 0; flex: 1; order: 3; width: 100%; }
+  .topsearch input { flex: 1; width: auto; min-width: 0; }
   .statgrid, .recordgrid { grid-template-columns: repeat(2, 1fr); }
   h1 { font-size: 25px; }
   .bounty-card { padding: 16px; }
   .toolbar input[type="search"] { width: 100%; }
+  .toolbar select { flex: 1; }
   .lb-entry .who .t { max-width: 26ch; }
+  .col-interval { display: none; }
+  .pager { justify-content: center; }
+  .pager-info { order: -1; width: 100%; text-align: center; }
+}
+
+@media (max-width: 480px) {
+  .wrap { padding: 0 14px; }
+  main#view { padding: 20px 14px 40px; }
+  .statgrid, .recordgrid { gap: 8px; }
+  .statcard { padding: 12px; }
+  .statcard .v { font-size: 19px; }
+  .bounty-card-top { gap: 8px; }
+  .statrow { gap: 6px 16px; }
+  .stat .v { font-size: 16px; }
+  .lb-thumb { width: 36px; height: 36px; }
+  .tile { font-size: 17px; }
+  .avatar { width: 72px; height: 72px; }
+  .avatar.tile { font-size: 30px; }
+  .col-received { display: none; }
+  .lb-entry .who .t { max-width: 18ch; }
+  th, td { padding: 8px 10px; }
+  .topsearch button { padding: 7px 10px; }
 }

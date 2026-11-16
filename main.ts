@@ -35,4 +35,9 @@ if (existsSync(join(repoRoot, 'screenshots'))) {
   cpSync(join(repoRoot, 'screenshots'), join(outputDir, 'screenshots'), { recursive: true });
 }
 
-writeFileSync(join(outputDir, 'dossier.json'), buildDossier(outputDir, dossierCaps));
+const dossier = buildDossier(outputDir, dossierCaps);
+writeFileSync(join(outputDir, 'dossier.json'), dossier);
+
+// A one-line receipt for the maker: the dossier's size, so a bad build
+// is obvious before the entry is checked.
+console.log('dossier.json: ' + dossier.length + ' bytes written to ' + outputDir);

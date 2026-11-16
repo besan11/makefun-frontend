@@ -26,15 +26,76 @@ def proxy_from_env():
     }
 
 
+def wait_for_images(page, timeout=10000):
+    """Wait until every in-viewport <img> has settled (loaded or failed).
+    A slow image still loading at shot time shows as a plain grey box, so
+    the shot waits for the real photo or the letter-tile fallback instead.
+    Returns False on timeout; the caller decides whether that matters."""
+    try:
+        page.wait_for_function(
+            """() => [...document.images].filter(i => {
+                const r = i.getBoundingClientRect();
+                return r.top < innerHeight && r.bottom > 0;
+            }).every(i => i.complete)""",
+            timeout=timeout,
+        )
+        return True
+    except Exception:
+        return False
+
+
 def main():
+    phone_only = "--phone" in sys.argv
     OUT.mkdir(parents=True, exist_ok=True)
     problems = []
     with sync_playwright() as p:
         browser = p.chromium.launch(
             executable_path="/home/hatch/.cache/chrome-for-testing/chrome-linux64/chrome",
-            args=["--no-sandbox"],
+            # The egress proxy presents its own cert for TLS hosts, which
+            # this Chromium does not trust; ignoring cert errors here (a
+            # local screenshot run only, never the app) lets the API's
+            # GitHub avatars load instead of failing on the sandbox.
+            args=["--no-sandbox", "--ignore-certificate-errors"],
             proxy=proxy_from_env(),
         )
+        if phone_only:
+            # Narrow-viewport check: the board at phone width, saved to /tmp
+            # (not into screenshots/, which holds exactly the 3 entry shots).
+            # Reports horizontal overflow, console errors and failed requests.
+            page = browser.new_page(viewport={"width": 390, "height": 844})
+            errors = []
+            failed = []
+            page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.on("requestfailed", lambda r: failed.append(r.url + " " + (r.failure or "")))
+            page.goto(BASE + "/#/", wait_until="domcontentloaded", timeout=60000)
+            try:
+                page.wait_for_function("window.__shotReady === true", timeout=60000)
+            except Exception:
+                problems.append("phone: __shotReady never became true")
+            if not wait_for_images(page):
+                print("phone: warning: in-viewport images did not settle in time")
+            page.wait_for_timeout(400)
+            overflow = page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
+            print("phone horizontal overflow px:", overflow)
+            if overflow > 0:
+                problems.append(f"phone: page overflows horizontally by {overflow}px")
+            page.screenshot(path="/tmp/phone-board.jpg", type="jpeg", quality=80)
+            print("phone shot -> /tmp/phone-board.jpg")
+            print("console errors:", errors if errors else "none")
+            print("failed requests:", failed if failed else "none")
+            if errors:
+                problems.append("phone console errors: " + "; ".join(errors[:5]))
+            if failed:
+                problems.append("phone failed requests: " + "; ".join(failed[:5]))
+            browser.close()
+            if problems:
+                print("PROBLEMS:")
+                for problem in problems:
+                    print(" -", problem)
+                sys.exit(1)
+            print("PHONE CHECK OK")
+            return
         page = browser.new_page(viewport={"width": 1280, "height": 800})
         errors = []
         failed = []
@@ -48,6 +109,8 @@ def main():
                 page.wait_for_function("window.__shotReady === true", timeout=60000)
             except Exception:
                 problems.append(shot["file"] + ": __shotReady never became true")
+            if not wait_for_images(page):
+                print(shot["file"] + ": warning: in-viewport images did not settle in time")
             page.wait_for_timeout(400)
             path = OUT / shot["file"]
             page.screenshot(path=str(path), type="jpeg", quality=80)

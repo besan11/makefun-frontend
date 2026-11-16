@@ -1,8 +1,10 @@
 // A make.fun frontend: the board of live bounties, a page for each bounty,
 // its leaderboard and entries, and an account's public profile, on hash
-// routes. Read-only: every view is one GET to the public make.fun API,
-// cached in memory, so a second visit inside the cache window costs no
-// request at all.
+// routes. Read-only: every view is one GET to the public make.fun API in
+// the common case — a bounty page fetches its bounty and its recent
+// entries in parallel — cached in memory, so a second visit inside the
+// cache window costs no request at all. Deadlines tick in place every
+// 30 seconds without rebuilding the page.
 //
 //   #/                          the board
 //   #/bounty/<slug>             one bounty
@@ -16,6 +18,7 @@
 
 import { getBounties, getBounty, getEntries, getLeaderboard, getProfile } from './api.js';
 import { boardView, bountyView, entriesView, errorView, leaderboardView, loadingView, notFoundView, profileView } from './views.js';
+import { timeLeft } from './format.js';
 
 const view = document.getElementById('view');
 const searchForm = document.getElementById('topsearch');
@@ -24,6 +27,11 @@ const searchInput = document.getElementById('q');
 // The board's filter, search and sort, kept across re-renders.
 const boardUi = { filter: 'all', q: '', sort: 'deadline' };
 let boardData = null;
+
+// The leaderboard's data and page, kept so paging never refetches.
+let leaderboardData = null;
+let leaderboardSlug = null;
+let leaderboardPage = 1;
 
 function setShotReady(ready) {
   window.__shotReady = ready;
@@ -66,6 +74,16 @@ function fail(err, retry) {
   window.scrollTo(0, 0);
 }
 
+// Every time-left value on screen carries its deadline in data-deadline.
+// The ticker refreshes those texts in place, so a countdown moves
+// without rebuilding the page or spending another request.
+function tickTimes() {
+  document.querySelectorAll('[data-deadline]').forEach((el) => {
+    el.textContent = timeLeft(el.getAttribute('data-deadline'));
+  });
+}
+setInterval(tickTimes, 30000);
+
 // --- Board ---------------------------------------------------------------
 
 async function renderBoard() {
@@ -87,22 +105,24 @@ async function renderBoard() {
   wireBoard();
 }
 
+function rerenderBoard() {
+  show(boardView((boardData.items) || [], boardUi));
+  wireBoard();
+}
+
 function wireBoard() {
   view.querySelectorAll('[data-filter]').forEach((btn) => {
     btn.addEventListener('click', () => {
       boardUi.filter = btn.dataset.filter;
-      show(boardView((boardData.items) || [], boardUi));
-      wireBoard();
+      rerenderBoard();
     });
   });
   const q = view.querySelector('#board-q');
   if (q) {
     q.addEventListener('input', () => {
       boardUi.q = q.value;
-      const cards = boardView((boardData.items) || [], boardUi);
       const pos = q.selectionStart;
-      show(cards);
-      wireBoard();
+      rerenderBoard();
       const next = view.querySelector('#board-q');
       if (next) {
         next.focus();
@@ -114,8 +134,7 @@ function wireBoard() {
   if (sort) {
     sort.addEventListener('change', () => {
       boardUi.sort = sort.value;
-      show(boardView((boardData.items) || [], boardUi));
-      wireBoard();
+      rerenderBoard();
     });
   }
 }
@@ -127,10 +146,12 @@ async function renderBounty(slug) {
   markNav('board');
   setShotReady(false);
   showLoading('Loading the bounty…');
-  let b;
-  try {
-    b = await getBounty(slug);
-  } catch (err) {
+  const [bountyResult, entriesResult] = await Promise.allSettled([
+    getBounty(slug),
+    getEntries(slug, 5),
+  ]);
+  if (bountyResult.status === 'rejected') {
+    const err = bountyResult.reason;
     if (err && err.status === 404) {
       show(notFoundView('bounty with the slug “' + slug + '”'));
       window.scrollTo(0, 0);
@@ -139,13 +160,9 @@ async function renderBounty(slug) {
     fail(err, () => renderBounty(slug));
     return;
   }
+  const b = bountyResult.value;
   setTitle(b.title || 'Bounty');
-  let recent = null;
-  try {
-    recent = await getEntries(slug, 5);
-  } catch (err) {
-    recent = null;
-  }
+  const recent = entriesResult.status === 'fulfilled' ? entriesResult.value : null;
   show(bountyView(b, recent));
   window.scrollTo(0, 0);
 }
@@ -156,27 +173,31 @@ async function renderLeaderboard(slug) {
   setTitle('Leaderboard');
   markNav('board');
   setShotReady(false);
-  showLoading('Loading the leaderboard…');
-  let lb;
-  let bounty = null;
-  try {
-    lb = await getLeaderboard(slug);
-  } catch (err) {
-    if (err && err.status === 404) {
-      show(notFoundView('leaderboard for the bounty “' + slug + '”'));
-      window.scrollTo(0, 0);
+  // A new bounty, or a reload, fetches; paging the same bounty reuses
+  // the data already on hand and costs no request.
+  if (leaderboardSlug !== slug || !leaderboardData) {
+    leaderboardPage = 1;
+    showLoading('Loading the leaderboard…');
+    const [lbResult, bountyResult] = await Promise.allSettled([
+      getLeaderboard(slug),
+      getBounty(slug),
+    ]);
+    if (lbResult.status === 'rejected') {
+      const err = lbResult.reason;
+      if (err && err.status === 404) {
+        show(notFoundView('leaderboard for the bounty “' + slug + '”'));
+        window.scrollTo(0, 0);
+        return;
+      }
+      fail(err, () => renderLeaderboard(slug));
       return;
     }
-    fail(err, () => renderLeaderboard(slug));
-    return;
+    leaderboardSlug = slug;
+    leaderboardData = { lb: lbResult.value, bounty: bountyResult.status === 'fulfilled' ? bountyResult.value : null };
   }
-  try {
-    bounty = await getBounty(slug);
-    setTitle((bounty.title || 'Bounty') + ' leaderboard');
-  } catch (err) {
-    bounty = null;
-  }
-  show(leaderboardView(lb, bounty));
+  const bounty = leaderboardData.bounty;
+  if (bounty) setTitle((bounty.title || 'Bounty') + ' leaderboard');
+  show(leaderboardView(leaderboardData.lb, bounty, leaderboardPage));
   window.scrollTo(0, 0);
 }
 
@@ -250,6 +271,31 @@ function route() {
   return renderBoard();
 }
 
+// Pager buttons and the empty state's reset button are wired by
+// delegation, so they work on every render without rewiring.
+view.addEventListener('click', (ev) => {
+  const pageBtn = ev.target.closest('[data-page]');
+  if (pageBtn && !pageBtn.disabled) {
+    leaderboardPage = Number(pageBtn.dataset.page) || 1;
+    renderLeaderboard(leaderboardSlug);
+    return;
+  }
+  if (ev.target.closest('[data-reset-filters]')) {
+    boardUi.filter = 'all';
+    boardUi.q = '';
+    boardUi.sort = 'deadline';
+    rerenderBoard();
+  }
+});
+
+// Pressing / focuses the top search, as on many listing sites.
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === '/' && document.activeElement !== searchInput && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) {
+    ev.preventDefault();
+    searchInput.focus();
+  }
+});
+
 // The top search takes a handle or a bounty slug. A slug that exists
 // opens its bounty page; anything else opens that handle's profile.
 searchForm.addEventListener('submit', async (ev) => {
@@ -262,11 +308,7 @@ searchForm.addEventListener('submit', async (ev) => {
     await getBounty(raw);
     location.hash = '#/bounty/' + encodeURIComponent(raw);
   } catch (err) {
-    if (err && err.status === 404) {
-      location.hash = '#/u/' + encodeURIComponent(raw);
-    } else {
-      location.hash = '#/u/' + encodeURIComponent(raw);
-    }
+    location.hash = '#/u/' + encodeURIComponent(raw);
   }
 });
 
