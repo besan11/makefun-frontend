@@ -101,10 +101,21 @@ export function shortDate(iso) {
   return d.getUTCDate() + ' ' + months[d.getUTCMonth()] + ' ' + d.getUTCFullYear();
 }
 
+// The time of day, local, as '14:03:22', for the footer's request
+// counter: it says when the numbers last moved.
+export function clockTime(ms) {
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return '—';
+  const pad = (n) => String(n).padStart(2, '0');
+  return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+}
+
 // A rate as a percentage with one decimal, or a dash when there is none.
+// A rate cannot pass 100%, so a value outside 0–1 is clamped rather
+// than shown as a number no win rate can be.
 export function rate(value) {
   if (value === null || value === undefined || value === '') return '—';
   const n = Number(value);
   if (!Number.isFinite(n)) return '—';
-  return (n * 100).toFixed(1) + '%';
+  return (Math.min(1, Math.max(0, n)) * 100).toFixed(1) + '%';
 }

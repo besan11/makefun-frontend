@@ -123,9 +123,14 @@ export function boardView(items, ui) {
 
   const chip = (key, label) => '<button class="chip" data-filter="' + key + '" aria-pressed="' + (ui.filter === key ? 'true' : 'false') + '">' + label + ' <span class="n">' + counts[key] + '</span></button>';
   const cards = list.map(bountyCard).join('');
-  const empty = ui.filter === 'closing'
-    ? emptyState('No bounties close within a day.', 'Nothing ends in the next 24 hours right now — check back later, or browse the open bounties.', '<button class="btn" data-reset-filters>Show all bounties</button>')
-    : emptyState('No bounties match this filter.', 'Try a different filter, or clear the search above.', '<button class="btn" data-reset-filters>Show all bounties</button>');
+  // A search that matches nothing says so with the search text, so the
+  // reader knows it was the search — not the filter — that emptied the
+  // board; a filter with nothing in it says which filter, with a reset.
+  const empty = q
+    ? emptyState('No bounties match “' + ui.q + '”.', 'Try a shorter search, or clear it to see the whole board.', '<button class="btn" data-reset-filters>Show all bounties</button>')
+    : ui.filter === 'closing'
+      ? emptyState('No bounties close within a day.', 'Nothing ends in the next 24 hours right now — check back later, or browse the open bounties.', '<button class="btn" data-reset-filters>Show all bounties</button>')
+      : emptyState('No bounties match this filter.', 'Try a different filter, or clear the search above.', '<button class="btn" data-reset-filters>Show all bounties</button>');
   return '<h1>Open bounties</h1>'
     + '<p class="lede">Live bounties on make.fun, with each one’s live pot, entry fee, time left and entries. A bounty past its deadline counts as ended here even while its status still reads open.</p>'
     + '<div class="toolbar" role="group" aria-label="Filter and sort">'
@@ -163,12 +168,32 @@ function rewardsTable(b) {
 }
 
 // A small, safe markdown renderer for bounty descriptions: headings,
-// lists, code spans and fenced code, paragraphs. Everything is escaped
-// before any markup is added.
+// lists, links, code spans and fenced code, paragraphs. Everything is
+// escaped before any markup is added, and a link is only built for an
+// http or https address, so a description cannot smuggle in a
+// javascript: link or an unescaped attribute.
 function inlineMd(text) {
   return esc(text)
     .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" rel="noopener">$1</a>');
+}
+
+// A table row, split on pipes: '| a | b |' -> ['a', 'b']. The outer
+// pipes are decoration, not cells.
+function tableCells(line) {
+  const parts = line.split('|').map((c) => c.trim());
+  if (parts.length && parts[0] === '') parts.shift();
+  if (parts.length && parts[parts.length - 1] === '') parts.pop();
+  return parts;
+}
+
+// A table separator line: '|---|---|' or '|:---|---:|', at least one
+// run of dashes. Alignment markers are read but not rendered: the
+// table keeps the site's own alignment.
+function isTableSep(line) {
+  const cells = tableCells(line);
+  return cells.length > 0 && cells.every((c) => /^:?-+:?$/.test(c));
 }
 
 export function md(text) {
@@ -191,7 +216,8 @@ export function md(text) {
       listItems = '';
     }
   };
-  for (const raw of lines) {
+  for (let i = 0; i < lines.length; i += 1) {
+    const raw = lines[i];
     const line = raw.replace(/\s+$/, '');
     if (code !== null) {
       if (line.trim().startsWith('```')) {
@@ -208,12 +234,34 @@ export function md(text) {
       code = [];
       continue;
     }
-    const h3 = line.match(/^###\s+(.*)/);
-    const h2 = line.match(/^##\s+(.*)/);
-    if (h3 || h2) {
+    // A table: a header row of pipes, a separator row under it, then
+    // body rows of pipes. Rendered in the site's table wrapper, so it
+    // scrolls on a phone instead of overflowing the page.
+    if (line.startsWith('|') && i + 1 < lines.length && isTableSep(lines[i + 1].replace(/\s+$/, ''))) {
       flushPara();
       flushList();
-      out += h3 ? '<h3>' + inlineMd(h3[1]) + '</h3>' : '<h2>' + inlineMd(h2[1]) + '</h2>';
+      const head = tableCells(line);
+      let body = '';
+      i += 2;
+      while (i < lines.length && lines[i].replace(/\s+$/, '').startsWith('|')) {
+        const cells = tableCells(lines[i].replace(/\s+$/, ''));
+        body += '<tr>' + cells.map((c) => '<td>' + inlineMd(c) + '</td>').join('') + '</tr>';
+        i += 1;
+      }
+      i -= 1;
+      out += '<div class="tablewrap"><table><thead><tr>' + head.map((c) => '<th>' + inlineMd(c) + '</th>').join('') + '</tr></thead><tbody>' + body + '</tbody></table></div>';
+      continue;
+    }
+    const h3 = line.match(/^###\s+(.*)/);
+    const h2 = line.match(/^##\s+(.*)/);
+    const h1 = line.match(/^#\s+(.*)/);
+    if (h3 || h2 || h1) {
+      flushPara();
+      flushList();
+      // A description's top heading renders as h2: the page already has
+      // its own h1, the bounty's title, and a second one would break the
+      // page's outline.
+      out += h3 ? '<h3>' + inlineMd(h3[1]) + '</h3>' : '<h2>' + inlineMd(h2 ? h2[1] : h1[1]) + '</h2>';
       continue;
     }
     const bullet = line.match(/^[-*]\s+(.*)/);
@@ -319,18 +367,34 @@ export function leaderboardView(lb, bounty, page) {
 
 // --- Entries --------------------------------------------------------------
 
-export function entriesView(data, bounty) {
+// Entries are paged like the leaderboard, 25 at a time, so a bounty
+// with hundreds of entries renders a small page instead of a giant
+// table. The pager reports its own page, so main.js can tell it apart
+// from the leaderboard's.
+export const ENTRIES_PAGE_SIZE = 25;
+
+export function entriesView(data, bounty, page) {
   const items = data.items || [];
-  const rows = items.map((s) => '<tr><td><a class="handle" href="#/u/' + encodeURIComponent(s.handle) + '">' + esc(s.handle) + '</a></td>'
+  const totalPages = Math.max(1, Math.ceil(items.length / ENTRIES_PAGE_SIZE));
+  const current = Math.min(Math.max(1, Number(page) || 1), totalPages);
+  const start = (current - 1) * ENTRIES_PAGE_SIZE;
+  const shown = items.slice(start, start + ENTRIES_PAGE_SIZE);
+  const rows = shown.map((s) => '<tr><td><a class="handle" href="#/u/' + encodeURIComponent(s.handle) + '">' + esc(s.handle) + '</a></td>'
     + '<td>' + esc(s.title || 'Untitled entry') + '</td>'
     + '<td>' + esc(s.status || '') + '</td>'
     + '<td class="num">' + (s.rank != null ? ordinal(s.rank) : '—') + '</td>'
     + '<td class="num">' + shortDate(s.created_at) + '</td></tr>').join('');
+  const pager = totalPages > 1
+    ? '<div class="pager" role="navigation" aria-label="Entries pages">'
+      + '<button class="btn btn-ghost" data-entries-page="' + (current - 1) + '"' + (current <= 1 ? ' disabled' : '') + '>← Prev</button>'
+      + '<span class="pager-info">Page ' + current + ' of ' + totalPages + ' · entries ' + (start + 1) + '–' + (start + shown.length) + ' of ' + items.length + '</span>'
+      + '<button class="btn btn-ghost" data-entries-page="' + (current + 1) + '"' + (current >= totalPages ? ' disabled' : '') + '>Next →</button></div>'
+    : '';
   return '<p><a class="backlink" href="#/bounty/' + encodeURIComponent(bounty.slug) + '">← Back to bounty</a></p>'
     + '<h1>' + esc(bounty.title) + ' — entries</h1>'
     + '<p class="lede">' + entriesLabel(bounty.submissionCount) + ' in all. Newest first.</p>'
     + (rows
-      ? '<div class="tablewrap"><table><thead><tr><th>Entrant</th><th>Entry</th><th>Status</th><th class="num">Rank</th><th class="num">Submitted</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+      ? '<div class="tablewrap"><table><thead><tr><th>Entrant</th><th>Entry</th><th>Status</th><th class="num">Rank</th><th class="num">Submitted</th></tr></thead><tbody>' + rows + '</tbody></table></div>' + pager
       : emptyState('No entries yet.', 'Nobody has submitted to this bounty so far — entries appear here as soon as they land.'));
 }
 

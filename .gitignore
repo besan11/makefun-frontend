@@ -4,3 +4,6 @@ out2/
 # Editor and OS droppings, never part of the entry.
 .DS_Store
 *.log
+# A stray node_modules would bloat the snapshot if anyone ever runs npm
+# here; the entry has no dependencies, so nothing should install one.
+node_modules/

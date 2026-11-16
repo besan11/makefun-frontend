@@ -16,13 +16,31 @@
 // (or its honest error state) is on screen, so a screenshot script
 // knows when to capture.
 
-import { getBounties, getBounty, getEntries, getLeaderboard, getProfile } from './api.js';
+import { getBounties, getBounty, getEntries, getLeaderboard, getProfile, onStats, stats } from './api.js';
 import { boardView, bountyView, entriesView, errorView, leaderboardView, loadingView, notFoundView, profileView } from './views.js';
-import { timeLeft } from './format.js';
+import { clockTime, timeLeft } from './format.js';
 
 const view = document.getElementById('view');
 const searchForm = document.getElementById('topsearch');
 const searchInput = document.getElementById('q');
+const netstat = document.getElementById('netstat');
+
+// The footer's request counter: the running totals from the API layer,
+// refreshed whenever a counter moves and after every render, so the
+// numbers on screen are never stale. Before the first request it says
+// so, instead of showing a row of zeroes.
+function renderNetstat() {
+  if (!netstat) return;
+  const s = stats();
+  if (s.network === 0 && s.cached === 0 && s.shared === 0) {
+    netstat.textContent = 'No API requests yet — the first view costs one.';
+    return;
+  }
+  const shared = s.shared ? ' · ' + s.shared + ' shared' : '';
+  netstat.textContent = s.network + ' requests · ' + s.cached + ' from cache' + shared + ' · updated ' + clockTime(s.updatedAt);
+}
+onStats(renderNetstat);
+renderNetstat();
 
 // The board's filter, search and sort, kept across re-renders.
 const boardUi = { filter: 'all', q: '', sort: 'deadline' };
@@ -32,6 +50,17 @@ let boardData = null;
 let leaderboardData = null;
 let leaderboardSlug = null;
 let leaderboardPage = 1;
+
+// A bounty the board already fetched, by slug. The leaderboard and the
+// search use it instead of spending a request on a bounty the app
+// already holds: the leaderboard from the board costs one request
+// (its entries) instead of two, and a search for a slug on the board
+// costs none at all.
+function boardBounty(slug) {
+  const items = (boardData && boardData.items) || [];
+  for (const b of items) if (b.slug === slug) return b;
+  return null;
+}
 
 function setShotReady(ready) {
   window.__shotReady = ready;
@@ -50,6 +79,7 @@ function markNav(route) {
 
 function show(html) {
   view.innerHTML = html;
+  renderNetstat();
   setShotReady(true);
 }
 
@@ -174,13 +204,17 @@ async function renderLeaderboard(slug) {
   markNav('board');
   setShotReady(false);
   // A new bounty, or a reload, fetches; paging the same bounty reuses
-  // the data already on hand and costs no request.
+  // the data already on hand and costs no request. The bounty itself
+  // comes from the board when the app already holds it, so coming here
+  // from the board costs one request — the leaderboard — instead of two.
   if (leaderboardSlug !== slug || !leaderboardData) {
     leaderboardPage = 1;
     showLoading('Loading the leaderboard…');
+    const fromBoard = boardBounty(slug);
+    const bountyTask = fromBoard ? Promise.resolve(fromBoard) : getBounty(slug);
     const [lbResult, bountyResult] = await Promise.allSettled([
       getLeaderboard(slug),
-      getBounty(slug),
+      bountyTask,
     ]);
     if (lbResult.status === 'rejected') {
       const err = lbResult.reason;
@@ -203,32 +237,47 @@ async function renderLeaderboard(slug) {
 
 // --- Entries --------------------------------------------------------------
 
+// The entries list's data and page, kept so paging never refetches.
+let entriesData = null;
+let entriesSlug = null;
+let entriesPage = 1;
+
 async function renderEntries(slug) {
   setTitle('Entries');
   markNav('board');
   setShotReady(false);
-  showLoading('Loading the entries…');
-  let bounty;
-  try {
-    bounty = await getBounty(slug);
-  } catch (err) {
-    if (err && err.status === 404) {
-      show(notFoundView('bounty with the slug “' + slug + '”'));
-      window.scrollTo(0, 0);
+  // A new bounty, or a reload, fetches; paging the same bounty reuses
+  // the data already on hand and costs no request.
+  if (entriesSlug !== slug || !entriesData) {
+    entriesPage = 1;
+    showLoading('Loading the entries…');
+    // The bounty and its entries load in parallel: the entries need the
+    // bounty only for its title, and waiting for one before starting the
+    // other would cost a whole round trip for nothing.
+    const [bountyResult, entriesResult] = await Promise.allSettled([
+      getBounty(slug),
+      getEntries(slug, 50),
+    ]);
+    if (bountyResult.status === 'rejected') {
+      const err = bountyResult.reason;
+      if (err && err.status === 404) {
+        show(notFoundView('bounty with the slug “' + slug + '”'));
+        window.scrollTo(0, 0);
+        return;
+      }
+      fail(err, () => renderEntries(slug));
       return;
     }
-    fail(err, () => renderEntries(slug));
-    return;
+    if (entriesResult.status === 'rejected') {
+      fail(entriesResult.reason, () => renderEntries(slug));
+      return;
+    }
+    entriesSlug = slug;
+    entriesData = { data: entriesResult.value, bounty: bountyResult.value };
   }
+  const bounty = entriesData.bounty;
   setTitle((bounty.title || 'Bounty') + ' entries');
-  let data;
-  try {
-    data = await getEntries(slug, 50);
-  } catch (err) {
-    fail(err, () => renderEntries(slug));
-    return;
-  }
-  show(entriesView(data, bounty));
+  show(entriesView(entriesData.data, bounty, entriesPage));
   window.scrollTo(0, 0);
 }
 
@@ -272,12 +321,20 @@ function route() {
 }
 
 // Pager buttons and the empty state's reset button are wired by
-// delegation, so they work on every render without rewiring.
+// delegation, so they work on every render without rewiring. The
+// leaderboard and the entries list each carry their own page button,
+// so the two pagers never move each other.
 view.addEventListener('click', (ev) => {
   const pageBtn = ev.target.closest('[data-page]');
   if (pageBtn && !pageBtn.disabled) {
     leaderboardPage = Number(pageBtn.dataset.page) || 1;
     renderLeaderboard(leaderboardSlug);
+    return;
+  }
+  const entriesBtn = ev.target.closest('[data-entries-page]');
+  if (entriesBtn && !entriesBtn.disabled) {
+    entriesPage = Number(entriesBtn.dataset.entriesPage) || 1;
+    renderEntries(entriesSlug);
     return;
   }
   if (ev.target.closest('[data-reset-filters]')) {
@@ -296,12 +353,18 @@ document.addEventListener('keydown', (ev) => {
   }
 });
 
-// The top search takes a handle or a bounty slug. A slug that exists
-// opens its bounty page; anything else opens that handle's profile.
+// The top search takes a handle or a bounty slug. A slug the board
+// already holds opens its bounty page without a request; anything else
+// is tested against the API, and opens that handle's profile when the
+// API answers 404 for it as a bounty.
 searchForm.addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const raw = searchInput.value.trim().replace(/^@/, '');
   if (!raw) return;
+  if (boardBounty(raw)) {
+    location.hash = '#/bounty/' + encodeURIComponent(raw);
+    return;
+  }
   setShotReady(false);
   showLoading('Searching…');
   try {

@@ -11,8 +11,13 @@ import { fileURLToPath } from 'node:url';
 const appRoot = resolve(fileURLToPath(new URL('./app', import.meta.url)));
 const argv = process.argv.slice(2);
 const portFlag = argv.indexOf('--port');
-const wanted = portFlag === -1 ? 8080 : Number(argv[portFlag + 1]);
-const port = Number.isInteger(wanted) && wanted > 0 && wanted < 65536 ? wanted : 8080;
+const flagPort = portFlag === -1 ? NaN : Number(argv[portFlag + 1]);
+// The port, in order: --port, the MAKEFUN_PORT environment variable,
+// then 8080. The screenshot script sets MAKEFUN_PORT so the server and
+// the shots agree on a port without hardcoding it in two places.
+const envPort = Number(process.env.MAKEFUN_PORT);
+const port = (Number.isInteger(flagPort) && flagPort > 0 && flagPort < 65536) ? flagPort
+  : (Number.isInteger(envPort) && envPort > 0 && envPort < 65536) ? envPort : 8080;
 
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -25,6 +30,8 @@ const mimeTypes = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.webp': 'image/webp',
+  '.avif': 'image/avif',
+  '.txt': 'text/plain; charset=utf-8',
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
 };

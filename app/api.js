@@ -3,12 +3,42 @@
 // revalidated with If-None-Match. One view costs one request in the common
 // case; a second visit inside the cache window costs none, and two views
 // that ask for the same answer at the same moment share one request.
+//
+// The counter below is the app's honesty meter: every real fetch, every
+// answer served from the memory cache, and every request that joined one
+// already in flight is counted, and the footer shows the running total.
+// A view that costs nothing after the first visit says so on screen.
 
 const API = 'https://make.fun/api';
 const FRESH_MS = 45 * 1000;
 
 const cache = new Map();
 const inflight = new Map();
+
+// Running totals, read by the footer through stats(). updatedAt is the
+// time of the last change, so the footer can say when the numbers moved.
+const counts = { network: 0, cached: 0, shared: 0, updatedAt: 0 };
+const listeners = new Set();
+
+function note() {
+  counts.updatedAt = Date.now();
+  const snapshot = stats();
+  listeners.forEach((fn) => {
+    try { fn(snapshot); } catch { /* a listener never breaks a fetch */ }
+  });
+}
+
+// A snapshot of the counters, for the footer. A fresh copy each time, so
+// a caller cannot move the app's own numbers.
+export function stats() {
+  return { network: counts.network, cached: counts.cached, shared: counts.shared, updatedAt: counts.updatedAt };
+}
+
+// Subscribe to counter changes. Returns an unsubscribe function.
+export function onStats(fn) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
 
 function cacheKey(path) {
   return path;
@@ -18,18 +48,22 @@ async function fetchOnce(path, hit) {
   const headers = {};
   if (hit && hit.etag) headers['If-None-Match'] = hit.etag;
   let res;
+  counts.network += 1;
+  note();
   try {
     res = await fetch(API + path, { headers });
   } catch (err) {
-    if (hit) return hit.data;
+    if (hit) { counts.cached += 1; note(); return hit.data; }
     throw new Error('network');
   }
   if (res.status === 304 && hit) {
     hit.at = Date.now();
+    counts.cached += 1;
+    note();
     return hit.data;
   }
   if (!res.ok) {
-    if (hit) return hit.data;
+    if (hit) { counts.cached += 1; note(); return hit.data; }
     const err = new Error('http ' + res.status);
     err.status = res.status;
     throw err;
@@ -42,9 +76,9 @@ async function fetchOnce(path, hit) {
 async function get(path) {
   const key = cacheKey(path);
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < FRESH_MS) return hit.data;
+  if (hit && Date.now() - hit.at < FRESH_MS) { counts.cached += 1; note(); return hit.data; }
   const pending = inflight.get(key);
-  if (pending) return pending;
+  if (pending) { counts.shared += 1; note(); return pending; }
   const task = fetchOnce(path, hit).finally(() => inflight.delete(key));
   inflight.set(key, task);
   return task;

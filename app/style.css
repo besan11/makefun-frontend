@@ -200,6 +200,9 @@ h3 { font-size: 17px; margin: 0 0 4px; }
 .linkrow { display: flex; gap: 10px; flex-wrap: wrap; margin: 18px 0 4px; }
 .prose { max-width: 76ch; }
 .prose p { margin: 0 0 12px; white-space: pre-wrap; }
+/* A long bare URL in a description wraps instead of pushing the page
+   sideways on a phone. */
+.prose a { overflow-wrap: anywhere; }
 .prose h2 { margin-top: 28px; }
 .prose ul, .prose ol { margin: 0 0 12px; padding-left: 22px; }
 .prose li { margin-bottom: 4px; }
@@ -280,6 +283,9 @@ td .handle { font-weight: 700; }
 .footer { border-top: 1px solid var(--line); padding: 22px 0 34px; color: var(--ink-faint); font-size: 14px; }
 .footer p { margin: 0 0 6px; }
 .footer-note { font-size: 13px; }
+/* The request counter: tabular numbers, so the counts do not jump
+   sideways as they grow. */
+.footer-netstat { font-variant-numeric: tabular-nums; }
 
 /* Phone */
 @media (max-width: 760px) {

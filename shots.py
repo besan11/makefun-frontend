@@ -80,6 +80,10 @@ def main():
             print("phone horizontal overflow px:", overflow)
             if overflow > 0:
                 problems.append(f"phone: page overflows horizontally by {overflow}px")
+            netstat = page.evaluate("document.getElementById('netstat') ? document.getElementById('netstat').textContent : ''")
+            print("phone netstat:", netstat or "(empty)")
+            if not netstat:
+                problems.append("phone: footer request counter is empty")
             page.screenshot(path="/tmp/phone-board.jpg", type="jpeg", quality=80)
             print("phone shot -> /tmp/phone-board.jpg")
             print("console errors:", errors if errors else "none")
@@ -112,6 +116,12 @@ def main():
             if not wait_for_images(page):
                 print(shot["file"] + ": warning: in-viewport images did not settle in time")
             page.wait_for_timeout(400)
+            # The footer request counter is part of the entry: a shot
+            # with an empty counter means the counter never rendered.
+            netstat = page.evaluate("document.getElementById('netstat') ? document.getElementById('netstat').textContent : ''")
+            print(shot["file"], "netstat:", netstat or "(empty)")
+            if not netstat:
+                problems.append(shot["file"] + ": footer request counter is empty")
             path = OUT / shot["file"]
             page.screenshot(path=str(path), type="jpeg", quality=80)
             size = path.stat().st_size

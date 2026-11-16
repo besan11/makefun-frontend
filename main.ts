@@ -41,3 +41,10 @@ writeFileSync(join(outputDir, 'dossier.json'), dossier);
 // A one-line receipt for the maker: the dossier's size, so a bad build
 // is obvious before the entry is checked.
 console.log('dossier.json: ' + dossier.length + ' bytes written to ' + outputDir);
+
+// The Totals line as well, so the maker sees the first load (files and
+// gzip-9 bytes) without opening dossier.json. buildDossier returns
+// bytes, so decode them to text first. The dossier is JSON, so the
+// line's newline is an escape, not a real one — match up to it.
+const totals = new TextDecoder().decode(dossier).match(/Totals: [^\\]+/);
+if (totals) console.log(totals[0]);
